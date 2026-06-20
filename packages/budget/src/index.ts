@@ -1,4 +1,4 @@
-import { db } from "@lynx/shared";
+import { bbInsert, bbSelect } from "@lynx/shared";
 
 export type SpendKind = "llm" | "infra" | "captcha" | "proxy";
 
@@ -10,18 +10,23 @@ export interface SpendEntry {
 }
 
 export async function logSpend(e: SpendEntry): Promise<void> {
-  await db().query(
-    `insert into spend_log (company_id, run_id, kind, amount_usd) values ($1, $2, $3, $4)`,
-    [e.company_id, e.run_id ?? null, e.kind, e.amount_usd],
-  );
+  await bbInsert("lynx_spend_log", {
+    company_id: e.company_id,
+    run_id: e.run_id ?? null,
+    kind: e.kind,
+    amount_usd: e.amount_usd,
+  });
+}
+
+interface SumRow {
+  amount_usd: string;
 }
 
 export async function dailySpend(company_id: string): Promise<number> {
-  const r = await db().query(
-    `select coalesce(sum(amount_usd), 0) as total
-     from spend_log
-     where company_id = $1 and ts > now() - interval '24 hours'`,
-    [company_id],
-  );
-  return Number(r.rows[0].total);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const rows = await bbSelect<SumRow>("lynx_spend_log", {
+    company_id: `eq.${company_id}`,
+    ts: `gt.${since}`,
+  });
+  return rows.reduce((acc, r) => acc + Number(r.amount_usd), 0);
 }

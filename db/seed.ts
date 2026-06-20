@@ -1,33 +1,39 @@
+// Seeds Test Co + 5 stub identities into the arcus-memory Butterbase app.
+//
+// Requires:
+//   BUTTERBASE_APP_ID=app_9kdch2ndsfx9
+//   BUTTERBASE_API_KEY=bb_sk_...
+//   IDENTITY_ENCRYPTION_KEY=...
+
 import { createHash, randomBytes } from "node:crypto";
-import { db } from "@lynx/shared";
+import { bbSelect, bbInsert } from "@lynx/shared";
 import { createIdentity } from "@lynx/identity-vault";
 
-async function main() {
-  const pool = db();
+interface Company {
+  id: string;
+  name: string;
+}
 
-  // Seed test company
+async function main() {
   const apiKey = `lynx_test_${randomBytes(16).toString("hex")}`;
   const apiKeyHash = createHash("sha256").update(apiKey).digest("hex");
 
-  const co = await pool.query(
-    `insert into companies (name, api_key_hash) values ($1, $2)
-     on conflict (api_key_hash) do nothing
-     returning id`,
-    ["Test Co (seed)", apiKeyHash],
+  let company: Company;
+  const existing = await bbSelect<Company>(
+    "lynx_companies",
+    { name: "eq.Test Co (seed)" },
+    { limit: 1, select: "id,name" },
   );
-
-  let companyId: string;
-  if (co.rows[0]) {
-    companyId = co.rows[0].id;
-    console.log(`Created company ${companyId}`);
-    console.log(`API key (save now, only shown once): ${apiKey}`);
+  if (existing[0]) {
+    company = existing[0];
+    console.log(`Reusing company ${company.id}`);
   } else {
-    const existing = await pool.query(
-      `select id from companies where name = $1 limit 1`,
-      ["Test Co (seed)"],
-    );
-    companyId = existing.rows[0].id;
-    console.log(`Reusing company ${companyId}`);
+    company = await bbInsert<Company>("lynx_companies", {
+      name: "Test Co (seed)",
+      api_key_hash: apiKeyHash,
+    });
+    console.log(`Created company ${company.id}`);
+    console.log(`Lynx API key (save now, only shown once): ${apiKey}`);
   }
 
   const seeds = [
@@ -39,16 +45,17 @@ async function main() {
   ];
 
   for (const s of seeds) {
-    const existing = await pool.query(
-      `select id from identities where company_id = $1 and label = $2`,
-      [companyId, s.label],
+    const exists = await bbSelect(
+      "lynx_identities",
+      { company_id: `eq.${company.id}`, label: `eq.${s.label}` },
+      { limit: 1, select: "id" },
     );
-    if (existing.rows[0]) {
+    if (exists[0]) {
       console.log(`Skip ${s.label} (exists)`);
       continue;
     }
     const id = await createIdentity({
-      company_id: companyId,
+      company_id: company.id,
       label: s.label,
       email: s.email,
       phone: s.phone,
@@ -61,8 +68,6 @@ async function main() {
     });
     console.log(`Seeded ${s.label} → ${id.id}`);
   }
-
-  await pool.end();
 }
 
 main().catch((e) => {

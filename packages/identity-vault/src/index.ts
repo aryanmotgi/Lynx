@@ -1,5 +1,5 @@
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "node:crypto";
-import { withTenant } from "@lynx/shared";
+import { bbSelect, bbInsert } from "@lynx/shared";
 
 export interface Identity {
   id: string;
@@ -20,6 +20,17 @@ export interface IdentityInput {
   payment_token?: string;
   fingerprint?: Record<string, unknown>;
   storage_state_url?: string;
+}
+
+interface Row {
+  id: string;
+  company_id: string;
+  label: string;
+  email: string | null;
+  phone: string | null;
+  fingerprint_json: Record<string, unknown> | null;
+  storage_state_url: string | null;
+  created_at: string;
 }
 
 const ALGO = "aes-256-gcm";
@@ -48,44 +59,47 @@ export function decrypt(blob: string): string {
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
 }
 
+function toIdentity(r: Row): Identity {
+  return {
+    id: r.id,
+    company_id: r.company_id,
+    label: r.label,
+    email: r.email,
+    phone: r.phone,
+    fingerprint: r.fingerprint_json,
+    storage_state_url: r.storage_state_url,
+    created_at: r.created_at,
+  };
+}
+
 export async function createIdentity(input: IdentityInput): Promise<Identity> {
-  return withTenant(input.company_id, async (c) => {
-    const encryptedPaymentToken = input.payment_token ? encrypt(input.payment_token) : null;
-    const r = await c.query(
-      `insert into identities (company_id, label, email, phone, payment_token, fingerprint_json, storage_state_url)
-       values ($1,$2,$3,$4,$5,$6,$7)
-       returning id, company_id, label, email, phone, fingerprint_json as fingerprint, storage_state_url, created_at`,
-      [
-        input.company_id,
-        input.label,
-        input.email ?? null,
-        input.phone ?? null,
-        encryptedPaymentToken,
-        input.fingerprint ?? null,
-        input.storage_state_url ?? null,
-      ],
-    );
-    return r.rows[0] as Identity;
+  const encryptedPaymentToken = input.payment_token ? encrypt(input.payment_token) : null;
+  const row = await bbInsert<Row>("lynx_identities", {
+    company_id: input.company_id,
+    label: input.label,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    payment_token: encryptedPaymentToken,
+    fingerprint_json: input.fingerprint ?? null,
+    storage_state_url: input.storage_state_url ?? null,
   });
+  return toIdentity(row);
 }
 
 export async function getIdentity(company_id: string, id: string): Promise<Identity | null> {
-  return withTenant(company_id, async (c) => {
-    const r = await c.query(
-      `select id, company_id, label, email, phone, fingerprint_json as fingerprint, storage_state_url, created_at
-       from identities where id = $1`,
-      [id],
-    );
-    return (r.rows[0] as Identity) ?? null;
-  });
+  const rows = await bbSelect<Row>(
+    "lynx_identities",
+    { company_id: `eq.${company_id}`, id: `eq.${id}` },
+    { limit: 1 },
+  );
+  return rows[0] ? toIdentity(rows[0]) : null;
 }
 
 export async function listIdentities(company_id: string): Promise<Identity[]> {
-  return withTenant(company_id, async (c) => {
-    const r = await c.query(
-      `select id, company_id, label, email, phone, fingerprint_json as fingerprint, storage_state_url, created_at
-       from identities order by created_at desc`,
-    );
-    return r.rows as Identity[];
-  });
+  const rows = await bbSelect<Row>(
+    "lynx_identities",
+    { company_id: `eq.${company_id}` },
+    { order: "created_at.desc" },
+  );
+  return rows.map(toIdentity);
 }

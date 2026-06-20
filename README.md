@@ -16,7 +16,10 @@ Lynx gives AI agents real Chrome. No API gatekeeping — agents navigate, click,
 
 ```bash
 pnpm install
-pnpm dev
+cp .env.example .env       # set BUTTERBASE_API_KEY + IDENTITY_ENCRYPTION_KEY
+make seed                  # prints a Lynx API key for Test Co
+make dev.control           # terminal 1
+make dev.worker            # terminal 2
 ```
 
 ## Architecture
@@ -35,7 +38,7 @@ GET  /v1/identities
 
 ## Stack
 
-TypeScript, Patchright (stealth Playwright), Stagehand agent loop, Vercel Sandbox workers, Docker Postgres (dev) / Butterbase (prod), Upstash Redis (per-company queues), Cloudflare R2 (artifacts), Claude Sonnet 4.6 + Haiku 4.5.
+TypeScript, Patchright (stealth Playwright), Stagehand agent loop, Fly Machines workers, Butterbase REST API (arcus-memory app `app_9kdch2ndsfx9`) for persistence, optional Upstash Redis for per-company queues, Cloudflare R2 for artifacts, Claude Sonnet 4.6 + Haiku 4.5.
 
 ## Status
 
