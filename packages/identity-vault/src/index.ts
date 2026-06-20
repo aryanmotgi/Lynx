@@ -1,5 +1,5 @@
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "node:crypto";
-import { bbSelect, bbInsert } from "@lynx/shared";
+import { bbSelect, bbInsert, bbUpdateById } from "@lynx/shared";
 
 export interface Identity {
   id: string;
@@ -9,6 +9,7 @@ export interface Identity {
   phone: string | null;
   fingerprint: Record<string, unknown> | null;
   storage_state_url: string | null;
+  storage_state_json: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -30,6 +31,7 @@ interface Row {
   phone: string | null;
   fingerprint_json: Record<string, unknown> | null;
   storage_state_url: string | null;
+  storage_state_json: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -68,8 +70,18 @@ function toIdentity(r: Row): Identity {
     phone: r.phone,
     fingerprint: r.fingerprint_json,
     storage_state_url: r.storage_state_url,
+    storage_state_json: r.storage_state_json,
     created_at: r.created_at,
   };
+}
+
+export async function updateStorageState(
+  id: string,
+  storage_state: Record<string, unknown>,
+): Promise<void> {
+  await bbUpdateById("lynx_identities", id, {
+    storage_state_json: storage_state,
+  });
 }
 
 export async function createIdentity(input: IdentityInput): Promise<Identity> {
