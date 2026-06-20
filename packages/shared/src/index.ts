@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { db, withTenant } from "./db";
+
 export const DispatchRequest = z.object({
   company_id: z.string().uuid(),
   goal: z.string().min(1),

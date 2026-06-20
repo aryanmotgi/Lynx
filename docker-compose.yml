@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lynx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lynx
+      POSTGRES_PASSWORD: lynx_dev
+      POSTGRES_DB: lynx
+    ports:
+      - "5433:5432"
+    volumes:
+      - lynx_pg_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  lynx_pg_data:
