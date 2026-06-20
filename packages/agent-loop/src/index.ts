@@ -204,6 +204,66 @@ function sameRegistrableDomain(a: string, b: string): boolean {
   }
 }
 
+interface PlanStep {
+  action: "click" | "type" | "navigate" | "scroll" | "wait";
+  selector?: string;
+  value?: string;
+  note?: string;
+}
+
+interface Plan {
+  steps: PlanStep[];
+  done_check: string;
+}
+
+async function planSteps(
+  goal: string,
+  snapshot: string,
+  url: string,
+  model: string,
+): Promise<Plan> {
+  const sys = `You are a web automation planner. Output JSON only:
+{
+  "steps": [ { "action": "click"|"type"|"navigate"|"scroll"|"wait", "selector": "css", "value": "string", "note": "why" } ],
+  "done_check": "short natural-language description of how to tell the goal is achieved (e.g. 'URL matches /thanks' or 'page contains \\"Success\\"')."
+}
+Plan 3–8 concrete steps to reach the goal from the current page. Be specific with CSS selectors based on the visible elements. If a step needs typed input, set value. No prose outside JSON.`;
+  const user = `Goal: ${goal}\nURL: ${url}\n\nVisible interactive elements:\n${snapshot}\n\nProduce the plan.`;
+  return await butterbaseChatJSON<Plan>({
+    model,
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: user },
+    ],
+    max_tokens: 800,
+    temperature: 0.1,
+  });
+}
+
+async function checkDone(
+  goal: string,
+  done_check: string,
+  url: string,
+  snapshot: string,
+  model: string,
+): Promise<{ done: boolean; reason: string }> {
+  return await butterbaseChatJSON<{ done: boolean; reason: string }>({
+    model,
+    messages: [
+      {
+        role: "system",
+        content: 'Output JSON only: { "done": boolean, "reason": string }. Decide if the goal is achieved given the current page and the done_check criterion.',
+      },
+      {
+        role: "user",
+        content: `Goal: ${goal}\ndone_check: ${done_check}\nURL: ${url}\nVisible elements:\n${snapshot}`,
+      },
+    ],
+    max_tokens: 200,
+    temperature: 0.0,
+  });
+}
+
 async function tierLLM(
   g: RunGoal,
   session: BrowserSession,
@@ -223,6 +283,101 @@ async function tierLLM(
   let actions = 0;
   let repeatedScrolls = 0;
   const MAX_REPEATED_SCROLLS = 3;
+
+  // Plan-then-act: one LLM call lays out N concrete steps. Execute them
+  // deterministically. After the plan is done, one cheap LLM call verifies
+  // the goal is complete. On verification failure or step error, fall through
+  // to the per-step decision loop for the remaining MAX_ACTIONS budget.
+  let plan: Plan | null = null;
+  try {
+    const snapshot = await snapshotPage(session);
+    plan = await planSteps(g.goal, snapshot, session.page.url(), model);
+    cost += perAction;
+    await emit(g.run_id, startIdx++, "wait", {
+      kind: "plan",
+      step_count: plan.steps.length,
+      done_check: plan.done_check,
+      steps: plan.steps,
+    });
+  } catch (e) {
+    await emit(g.run_id, startIdx++, "wait", { error: `plan failed: ${e}` });
+  }
+
+  if (plan) {
+    let planFailed = false;
+    for (const step of plan.steps) {
+      if (actions >= MAX_ACTIONS) break;
+
+      const url = session.page.url();
+      if (g.start_url && !sameRegistrableDomain(url, g.start_url)) {
+        const text = await extractPageText(session);
+        const summary = await summarizeFindings(g.goal, url, text, model);
+        cost += perAction;
+        await emit(g.run_id, startIdx++, "extract", {
+          reason: "domain_drift_stop",
+          original_url: g.start_url,
+          current_url: url,
+          summary,
+        });
+        return { ok: true, cost, nextIdx: startIdx };
+      }
+
+      const actType = (step.action ?? "wait") as Action["type"];
+      await emit(g.run_id, startIdx++, actType, {
+        from: "plan",
+        selector: step.selector,
+        value: step.value,
+        note: step.note,
+      });
+
+      try {
+        if (step.action === "click" && step.selector) {
+          await session.page.click(step.selector, { timeout: 8000 });
+        } else if (step.action === "type" && step.selector && step.value !== undefined) {
+          await session.page.fill(step.selector, step.value);
+        } else if (step.action === "navigate" && step.value) {
+          await session.page.goto(step.value);
+        } else if (step.action === "scroll") {
+          await session.page.evaluate(() => window.scrollBy(0, 600));
+        } else if (step.action === "wait") {
+          await session.page.waitForTimeout(1000);
+        }
+      } catch (e) {
+        await emit(g.run_id, startIdx++, "wait", { error: `plan step failed: ${e}` });
+        planFailed = true;
+        break;
+      }
+
+      history.push(`plan:${step.action} ${step.selector ?? ""} ${step.value ?? ""}`);
+      actions++;
+    }
+
+    if (!planFailed) {
+      try {
+        const snapshot = await snapshotPage(session);
+        const check = await checkDone(
+          g.goal,
+          plan.done_check,
+          session.page.url(),
+          snapshot,
+          model,
+        );
+        cost += perAction;
+        await emit(g.run_id, startIdx++, "wait", {
+          kind: "done_check",
+          done: check.done,
+          reason: check.reason,
+        });
+        if (check.done) {
+          return { ok: true, cost, nextIdx: startIdx };
+        }
+      } catch (e) {
+        await emit(g.run_id, startIdx++, "wait", { error: `done_check failed: ${e}` });
+      }
+    }
+  }
+
+  // Fallback: per-step decision loop using the remaining action budget.
 
   while (actions < MAX_ACTIONS) {
     const snapshot = await snapshotPage(session);
