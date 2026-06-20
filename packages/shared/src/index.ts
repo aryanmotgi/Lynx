@@ -5,6 +5,7 @@ export * from "./runs";
 export * from "./auth";
 export * from "./queue";
 export * from "./memory";
+export * from "./llm";
 
 export const DispatchRequest = z.object({
   company_id: z.string().uuid(),

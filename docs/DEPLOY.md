@@ -35,7 +35,6 @@ fly secrets set \
   BUTTERBASE_APP_ID=app_9kdch2ndsfx9 \
   BUTTERBASE_API_KEY=bb_sk_... \
   IDENTITY_ENCRYPTION_KEY=... \
-  ANTHROPIC_API_KEY=... \
   REDIS_URL=... \
   --app lynx-control
 
@@ -43,7 +42,6 @@ fly secrets set \
   BUTTERBASE_APP_ID=app_9kdch2ndsfx9 \
   BUTTERBASE_API_KEY=bb_sk_... \
   IDENTITY_ENCRYPTION_KEY=... \
-  ANTHROPIC_API_KEY=... \
   REDIS_URL=... \
   --app lynx-worker
 ```
@@ -61,7 +59,8 @@ fly deploy -c fly.worker.toml
 
 ```
 cp .env.example .env
-# set BUTTERBASE_API_KEY, IDENTITY_ENCRYPTION_KEY, ANTHROPIC_API_KEY
+# set BUTTERBASE_API_KEY, IDENTITY_ENCRYPTION_KEY
+# All LLM traffic routes through Butterbase AI gateway — no Anthropic key needed.
 make seed                  # mints Lynx API key for Test Co
 make dev.control
 make dev.worker

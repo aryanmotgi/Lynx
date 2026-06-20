@@ -16,7 +16,7 @@ Lynx gives AI agents real Chrome. No API gatekeeping — agents navigate, click,
 
 ```bash
 pnpm install
-cp .env.example .env       # set BUTTERBASE_API_KEY + IDENTITY_ENCRYPTION_KEY + ANTHROPIC_API_KEY
+cp .env.example .env       # set BUTTERBASE_API_KEY + IDENTITY_ENCRYPTION_KEY
 make seed                  # prints a Lynx API key for Test Co
 make dev.control           # terminal 1
 make dev.worker            # terminal 2

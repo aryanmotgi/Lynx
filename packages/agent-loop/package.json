@@ -10,8 +10,6 @@
     "@lynx/shared": "workspace:*",
     "@lynx/playbook-store": "workspace:*",
     "@lynx/browser-core": "workspace:*",
-    "@lynx/identity-vault": "workspace:*",
-    "@browserbasehq/stagehand": "^2.0.0",
-    "@anthropic-ai/sdk": "^0.32.1"
+    "@lynx/identity-vault": "workspace:*"
   }
 }
