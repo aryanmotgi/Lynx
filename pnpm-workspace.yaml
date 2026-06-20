@@ -3,4 +3,7 @@ packages:
   - "packages/*"
   - "db"
 allowBuilds:
+  '@google/genai': true
   esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
