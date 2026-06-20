@@ -52,14 +52,35 @@ export async function updateRunStatus(
   await bbUpdateById("lynx_runs", id, body);
 }
 
+interface IdxRow {
+  idx: number;
+}
+
 export async function appendAction(run_id: string, a: Action): Promise<void> {
-  await bbInsert("lynx_actions", {
+  // Optimistic insert at caller-provided idx; on unique-constraint collision
+  // (concurrent worker / stale state), recompute next idx and retry once.
+  const body = {
     run_id,
-    idx: a.idx,
     type: a.type,
     payload_json: a.payload,
     ts: a.ts,
-  });
+  };
+  try {
+    await bbInsert("lynx_actions", { ...body, idx: a.idx });
+    return;
+  } catch (e) {
+    const msg = String(e);
+    if (!msg.includes("VALIDATION_UNIQUE_CONSTRAINT_VIOLATION") && !msg.includes(" 400 ")) {
+      throw e;
+    }
+  }
+  const rows = await bbSelect<IdxRow>(
+    "lynx_actions",
+    { run_id: `eq.${run_id}` },
+    { order: "idx.desc", limit: 1, select: "idx" },
+  );
+  const next = (rows[0]?.idx ?? -1) + 1;
+  await bbInsert("lynx_actions", { ...body, idx: next });
 }
 
 // Best-effort claim — single-worker only without Redis (race on concurrent).
