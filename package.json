@@ -1,0 +1,21 @@
+{
+  "name": "lynx",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Agent-native browser service. Standalone HTTP API. Atlas-ready.",
+  "packageManager": "pnpm@11.8.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.10.1"
+  }
+}
