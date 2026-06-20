@@ -4,14 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'control plane dev (TODO: Next.js scaffold in Phase 3)'",
-    "build": "echo 'control plane build (TODO)'",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lynx/shared": "workspace:*",
     "@lynx/identity-vault": "workspace:*",
     "@lynx/playbook-store": "workspace:*",
-    "@lynx/budget": "workspace:*"
+    "@lynx/budget": "workspace:*",
+    "@lynx/agent-loop": "workspace:*",
+    "fastify": "^5.1.0",
+    "@fastify/sensible": "^6.0.2",
+    "fastify-plugin": "^5.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }

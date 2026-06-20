@@ -5,5 +5,9 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "typecheck": "tsc --noEmit" }
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "@lynx/shared": "workspace:*",
+    "@lynx/playbook-store": "workspace:*"
+  }
 }
