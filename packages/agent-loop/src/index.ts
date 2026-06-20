@@ -8,7 +8,7 @@
 
 import { Stagehand } from "@browserbasehq/stagehand";
 import { getPlaybook, recordOutcome } from "@lynx/playbook-store";
-import { appendAction, updateRunStatus } from "@lynx/shared";
+import { appendAction, updateRunStatus, writeMemoryEntry } from "@lynx/shared";
 import { getIdentity } from "@lynx/identity-vault";
 import { launchSession, type BrowserSession } from "@lynx/browser-core";
 import type { Action } from "@lynx/shared";
@@ -168,6 +168,34 @@ async function loadIdentity(g: RunGoal) {
   };
 }
 
+async function reportToMemory(
+  g: RunGoal,
+  status: "succeeded" | "failed",
+  cost_usd: number,
+  tier_used: Tier,
+) {
+  try {
+    await writeMemoryEntry({
+      agent: "lynx",
+      type: "browser_run",
+      summary: `${status} — ${g.goal.slice(0, 120)}`,
+      outcome: status,
+      task_id: g.run_id,
+      detail: {
+        company_id: g.company_id,
+        run_id: g.run_id,
+        goal: g.goal,
+        start_url: g.start_url ?? null,
+        identity_id: g.identity_id ?? null,
+        tier_used,
+        cost_usd,
+      },
+    });
+  } catch (e) {
+    console.error("[agent-loop] memory_entries write failed:", e);
+  }
+}
+
 export async function runGoal(g: RunGoal): Promise<RunResult> {
   let idx = 0;
   let totalCost = 0;
@@ -194,6 +222,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
         });
+        await reportToMemory(g, "succeeded", totalCost, tierUsed);
         return { status: "succeeded", cost_usd: totalCost, tier_used: tierUsed };
       }
 
@@ -206,6 +235,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
         });
+        await reportToMemory(g, "succeeded", totalCost, tierUsed);
         return { status: "succeeded", cost_usd: totalCost, tier_used: tierUsed };
       }
 
@@ -218,6 +248,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
         });
+        await reportToMemory(g, "succeeded", totalCost, tierUsed);
         return { status: "succeeded", cost_usd: totalCost, tier_used: tierUsed };
       }
     } catch (e) {
@@ -236,5 +267,6 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
     finished_at: new Date().toISOString(),
     cost_usd: totalCost.toFixed(4),
   });
+  await reportToMemory(g, "failed", totalCost, tierUsed);
   return { status: "failed", cost_usd: totalCost, tier_used: tierUsed };
 }

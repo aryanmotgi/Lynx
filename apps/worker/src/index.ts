@@ -1,20 +1,26 @@
 // Lynx browser worker.
-//
-// Two modes:
-//   1. REDIS_URL set: BullMQ worker(s), one per active company (subscribed).
-//   2. REDIS_URL unset: Postgres polling fallback (SELECT FOR UPDATE SKIP LOCKED).
-//
-// At deploy time on Fly Machines, one machine per session is the target.
+// REDIS_URL set: BullMQ. Unset: Butterbase REST polling fallback.
 
-import { db, getRun, nextQueuedRun, startWorker } from "@lynx/shared";
+import { bbSelect, getRun, nextQueuedRun, startWorker } from "@lynx/shared";
 import { runGoal } from "@lynx/agent-loop";
 
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 500);
 
+interface RunRow {
+  id: string;
+  company_id: string;
+  goal: string;
+  start_url: string | null;
+  identity_id: string | null;
+}
+
 async function runOne(run_id: string) {
-  // Need company_id; refetch run without RLS scope.
-  const r = await db().query(`select * from runs where id = $1`, [run_id]);
-  const run = r.rows[0];
+  const rows = await bbSelect<RunRow>(
+    "lynx_runs",
+    { id: `eq.${run_id}` },
+    { limit: 1, select: "id,company_id,goal,start_url,identity_id" },
+  );
+  const run = rows[0];
   if (!run) return;
   console.log(`[worker] claimed run ${run.id} for company ${run.company_id}`);
   await runGoal({
@@ -28,8 +34,8 @@ async function runOne(run_id: string) {
   console.log(`[worker] finished ${run.id} → ${final?.status}`);
 }
 
-async function postgresLoop() {
-  console.log(`[worker] postgres-poll mode, poll=${POLL_MS}ms`);
+async function butterbaseLoop() {
+  console.log(`[worker] butterbase-poll mode, poll=${POLL_MS}ms`);
   for (;;) {
     try {
       const run = await nextQueuedRun();
@@ -43,17 +49,16 @@ async function postgresLoop() {
 
 async function redisLoop() {
   console.log("[worker] redis/BullMQ mode");
-  // Subscribe to every company on startup. New companies require restart for now.
-  const r = await db().query(`select id from companies`);
-  for (const row of r.rows) {
-    const w = startWorker(row.id, runOne);
-    if (w) console.log(`[worker] subscribed to lynx:${row.id}`);
+  const companies = await bbSelect<{ id: string }>("lynx_companies", {}, { select: "id" });
+  for (const co of companies) {
+    const w = startWorker(co.id, runOne);
+    if (w) console.log(`[worker] subscribed to lynx:${co.id}`);
   }
 }
 
 async function main() {
   if (process.env.REDIS_URL) await redisLoop();
-  else await postgresLoop();
+  else await butterbaseLoop();
 }
 
 main();

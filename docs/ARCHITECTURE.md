@@ -110,7 +110,8 @@ GET  /v1/spend/:company_id
 
 - Control plane: Vercel
 - Workers: Vercel Sandbox
-- DB: Docker Postgres (local) → Butterbase (production)
+- DB: Butterbase REST API (arcus-memory app `app_9kdch2ndsfx9`) — local and production
+- Tenancy: enforced in app code by mandatory `company_id` filter on every Butterbase call (service key bypasses RLS by design)
 - Queue: Upstash Redis
 - Artifacts: Cloudflare R2
 - Secrets: Vercel env vars

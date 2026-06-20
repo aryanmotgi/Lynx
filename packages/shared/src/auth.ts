@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { db } from "./db";
+import { bbSelect } from "./butterbase";
 
 export interface Company {
   id: string;
@@ -12,9 +12,10 @@ export function hashApiKey(raw: string): string {
 
 export async function companyByApiKey(raw: string): Promise<Company | null> {
   const hash = hashApiKey(raw);
-  const r = await db().query(
-    `select id, name from companies where api_key_hash = $1`,
-    [hash],
+  const rows = await bbSelect<Company>(
+    "lynx_companies",
+    { api_key_hash: `eq.${hash}` },
+    { select: "id,name", limit: 1 },
   );
-  return (r.rows[0] as Company) ?? null;
+  return rows[0] ?? null;
 }

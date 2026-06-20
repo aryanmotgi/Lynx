@@ -1,60 +1,71 @@
-# Lynx deploy — Fly Machines
+# Lynx deploy — Fly Machines + Butterbase
 
-## Why Fly Machines, not Vercel Sandbox
+## Why Fly Machines
 
-Vercel Sandbox is optimized for short-lived code execution. Lynx browser
-sessions need full Chromium with several hundred MB of RAM, persistent
-storage state, and unrestricted network. Fly Machines give us:
+Vercel Sandbox not yet confirmed for full Chromium. Fly gives us full Linux
+microVMs sized for Chromium and per-machine isolation matching our 1-VM-per-session model.
 
-- Full Linux VMs with Chromium support out of the box
-- Per-machine isolation matching our 1-VM-per-session model
-- Horizontal scale via `fly machines run` per company queue
-- Region pinning for identity locality
-- Direct SSH for debugging stuck sessions
+## Persistence — Butterbase (arcus-memory app)
 
-We can revisit Vercel Sandbox once it adds confirmed Chromium support.
+- App ID: `app_9kdch2ndsfx9`
+- API base: `https://api.butterbase.ai/v1/app_9kdch2ndsfx9`
+- Lynx-scoped service key minted via `manage_auth_config (generate_service_key, key_scope=app)`. Set as `BUTTERBASE_API_KEY` secret. Never reuse the personal arcus key.
+
+## Tables Lynx owns
+
+- `lynx_companies` — Lynx tenants (Atlas-side companies)
+- `lynx_identities` — per-company browser identities (creds, fingerprints, storageState)
+- `lynx_playbooks` — per-(company, domain) playbooks (Skill Writer owns)
+- `lynx_runs` — every dispatched run
+- `lynx_actions` — per-run action log
+- `lynx_spend_log` — per-company spend ledger
+
+`memory_entries` is NOT touched by Lynx schema changes. Lynx writes one row
+per completed run with `agent="lynx"` so Atlas agents can observe results.
 
 ## Apps
 
 - `lynx-control` — Fastify API
 - `lynx-worker` — browser-running workers
 
-## Secrets to set per app
+## Secrets
 
 ```
 fly secrets set \
-  DATABASE_URL=... \
-  REDIS_URL=... \
+  BUTTERBASE_APP_ID=app_9kdch2ndsfx9 \
+  BUTTERBASE_API_KEY=bb_sk_... \
   IDENTITY_ENCRYPTION_KEY=... \
   ANTHROPIC_API_KEY=... \
+  REDIS_URL=... \
   --app lynx-control
 
 fly secrets set \
-  DATABASE_URL=... \
-  REDIS_URL=... \
+  BUTTERBASE_APP_ID=app_9kdch2ndsfx9 \
+  BUTTERBASE_API_KEY=bb_sk_... \
   IDENTITY_ENCRYPTION_KEY=... \
   ANTHROPIC_API_KEY=... \
+  REDIS_URL=... \
   --app lynx-worker
 ```
-
-`DATABASE_URL` points at Butterbase Postgres in production.
 
 ## Deploy
 
 ```
 fly launch --copy-config --config fly.control.toml --no-deploy
-fly launch --copy-config --config fly.worker.toml --no-deploy
+fly launch --copy-config --config fly.worker.toml  --no-deploy
 fly deploy -c fly.control.toml
 fly deploy -c fly.worker.toml
 ```
 
-## Butterbase swap
+## Local dev
 
-Lynx is Postgres-agnostic; `DATABASE_URL` is the only knob.
+```
+cp .env.example .env
+# set BUTTERBASE_API_KEY, IDENTITY_ENCRYPTION_KEY, ANTHROPIC_API_KEY
+make seed                  # mints Lynx API key for Test Co
+make dev.control
+make dev.worker
+```
 
-1. Provision a Butterbase Postgres database
-2. Apply `db/migrations/*.sql` against it (in order)
-3. Set `DATABASE_URL` secret on both Fly apps to the Butterbase connection string
-4. Seed via `pnpm --filter @lynx/db-scripts seed` once with `DATABASE_URL` pointed at Butterbase
-
-The RLS policies (`lynx.company_id` session var) work identically on Butterbase Postgres.
+Without `REDIS_URL` the worker polls Butterbase. Single-worker only — concurrent
+workers without Redis will race on claim. Set `REDIS_URL` to safely run many workers.

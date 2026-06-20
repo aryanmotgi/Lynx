@@ -1,5 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { db, getRun } from "@lynx/shared";
+import { bbSelect, getRun } from "@lynx/shared";
+
+interface ActionRow {
+  idx: number;
+  type: string;
+  payload_json: Record<string, unknown>;
+  ts: string;
+}
 
 export const runRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>("/runs/:id", async (req, reply) => {
@@ -8,7 +15,6 @@ export const runRoutes: FastifyPluginAsync = async (app) => {
     return run;
   });
 
-  // SSE stream — polls actions table for new rows. Real impl uses LISTEN/NOTIFY.
   app.get<{ Params: { id: string } }>("/runs/:id/stream", async (req, reply) => {
     const run = await getRun(req.company_id, req.params.id);
     if (!run) return reply.code(404).send({ error: "run not found" });
@@ -21,19 +27,25 @@ export const runRoutes: FastifyPluginAsync = async (app) => {
 
     let lastIdx = -1;
     const interval = setInterval(async () => {
-      const r = await db().query(
-        `select idx, type, payload_json as payload, ts from actions
-         where run_id = $1 and idx > $2 order by idx asc`,
-        [req.params.id, lastIdx],
+      const rows = await bbSelect<ActionRow>(
+        "lynx_actions",
+        { run_id: `eq.${req.params.id}`, idx: `gt.${lastIdx}` },
+        { order: "idx.asc" },
       );
-      for (const row of r.rows) {
+      for (const row of rows) {
         lastIdx = row.idx;
-        reply.raw.write(`data: ${JSON.stringify(row)}\n\n`);
+        reply.raw.write(
+          `data: ${JSON.stringify({
+            idx: row.idx,
+            type: row.type,
+            payload: row.payload_json,
+            ts: row.ts,
+          })}\n\n`,
+        );
       }
-      const r2 = await db().query(`select status from runs where id = $1`, [req.params.id]);
-      const status = r2.rows[0]?.status;
-      if (status === "succeeded" || status === "failed" || status === "cancelled") {
-        reply.raw.write(`event: end\ndata: ${JSON.stringify({ status })}\n\n`);
+      const cur = await getRun(req.company_id, req.params.id);
+      if (cur && (cur.status === "succeeded" || cur.status === "failed" || cur.status === "cancelled")) {
+        reply.raw.write(`event: end\ndata: ${JSON.stringify({ status: cur.status })}\n\n`);
         clearInterval(interval);
         reply.raw.end();
       }
