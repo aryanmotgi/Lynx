@@ -1,20 +1,22 @@
-// Lynx browser worker. Polls Postgres queue (no Redis dep yet), claims one
-// run at a time via SELECT ... FOR UPDATE SKIP LOCKED, drives the agent loop.
+// Lynx browser worker.
 //
-// At deploy time this process runs inside a Vercel Sandbox microVM, one VM
-// per session. Locally it's a single long-running process.
+// Two modes:
+//   1. REDIS_URL set: BullMQ worker(s), one per active company (subscribed).
+//   2. REDIS_URL unset: Postgres polling fallback (SELECT FOR UPDATE SKIP LOCKED).
+//
+// At deploy time on Fly Machines, one machine per session is the target.
 
-import { nextQueuedRun, getRun } from "@lynx/shared";
+import { db, getRun, nextQueuedRun, startWorker } from "@lynx/shared";
 import { runGoal } from "@lynx/agent-loop";
 
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 500);
 
-async function tick() {
-  const run = await nextQueuedRun();
+async function runOne(run_id: string) {
+  // Need company_id; refetch run without RLS scope.
+  const r = await db().query(`select * from runs where id = $1`, [run_id]);
+  const run = r.rows[0];
   if (!run) return;
   console.log(`[worker] claimed run ${run.id} for company ${run.company_id}`);
-  // start_url is not yet stored on run rows; PR3 follow-up adds it. For now
-  // worker pulls latest action-zero hint or skips. Pass null for stub.
   await runGoal({
     run_id: run.id,
     company_id: run.company_id,
@@ -26,11 +28,12 @@ async function tick() {
   console.log(`[worker] finished ${run.id} → ${final?.status}`);
 }
 
-async function loop() {
-  console.log(`[worker] starting, poll=${POLL_MS}ms`);
+async function postgresLoop() {
+  console.log(`[worker] postgres-poll mode, poll=${POLL_MS}ms`);
   for (;;) {
     try {
-      await tick();
+      const run = await nextQueuedRun();
+      if (run) await runOne(run.id);
     } catch (e) {
       console.error("[worker] tick error:", e);
     }
@@ -38,4 +41,19 @@ async function loop() {
   }
 }
 
-loop();
+async function redisLoop() {
+  console.log("[worker] redis/BullMQ mode");
+  // Subscribe to every company on startup. New companies require restart for now.
+  const r = await db().query(`select id from companies`);
+  for (const row of r.rows) {
+    const w = startWorker(row.id, runOne);
+    if (w) console.log(`[worker] subscribed to lynx:${row.id}`);
+  }
+}
+
+async function main() {
+  if (process.env.REDIS_URL) await redisLoop();
+  else await postgresLoop();
+}
+
+main();

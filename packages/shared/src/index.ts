@@ -3,6 +3,7 @@ import { z } from "zod";
 export { db, withTenant } from "./db";
 export * from "./runs";
 export * from "./auth";
+export * from "./queue";
 
 export const DispatchRequest = z.object({
   company_id: z.string().uuid(),
