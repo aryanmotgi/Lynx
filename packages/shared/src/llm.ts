@@ -60,7 +60,8 @@ export async function butterbaseChat(req: ChatRequest): Promise<ChatResponse> {
   return (await r.json()) as ChatResponse;
 }
 
-// Convenience: ask for JSON and parse it.
+// Convenience: ask for JSON and parse it. Strips markdown fences and
+// salvages JSON objects from LLM responses that wrap them in prose.
 export async function butterbaseChatJSON<T>(req: ChatRequest): Promise<T> {
   const res = await butterbaseChat({
     ...req,
@@ -68,5 +69,21 @@ export async function butterbaseChatJSON<T>(req: ChatRequest): Promise<T> {
   });
   const content = res.choices[0]?.message.content;
   if (!content) throw new Error("Butterbase chat returned empty content");
-  return JSON.parse(content) as T;
+  return parseLooseJSON<T>(content);
+}
+
+function parseLooseJSON<T>(raw: string): T {
+  let s = raw.trim();
+  const fence = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence?.[1]) s = fence[1].trim();
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    const first = s.indexOf("{");
+    const last = s.lastIndexOf("}");
+    if (first !== -1 && last > first) {
+      return JSON.parse(s.slice(first, last + 1)) as T;
+    }
+    throw new Error(`butterbaseChatJSON: could not parse: ${raw.slice(0, 200)}`);
+  }
 }

@@ -1,4 +1,4 @@
-import { bbSelect, bbInsert, bbUpdate } from "@lynx/shared";
+import { bbSelect, bbInsert, bbUpdateById } from "@lynx/shared";
 import type { Playbook, PlaybookStep } from "@lynx/shared";
 
 interface Row {
@@ -50,19 +50,18 @@ export async function recordOutcome(
   domain: string,
   success: boolean,
 ): Promise<void> {
-  const rows = await bbSelect<Row>(
+  const rows = await bbSelect<Row & { id: string }>(
     "lynx_playbooks",
     { company_id: `eq.${company_id}`, domain: `eq.${domain}` },
-    { order: "version.desc", limit: 1, select: "version,success_rate" },
+    { order: "version.desc", limit: 1, select: "id,version,success_rate" },
   );
   const cur = rows[0];
   if (!cur) return;
   const next = cur.success_rate * 0.9 + (success ? 1 : 0) * 0.1;
-  await bbUpdate(
-    "lynx_playbooks",
-    { company_id: `eq.${company_id}`, domain: `eq.${domain}`, version: `eq.${cur.version}` },
-    { success_rate: next, updated_at: new Date().toISOString() },
-  );
+  await bbUpdateById("lynx_playbooks", cur.id, {
+    success_rate: next,
+    updated_at: new Date().toISOString(),
+  });
 }
 
 export type { Playbook, PlaybookStep };
