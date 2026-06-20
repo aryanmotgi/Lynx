@@ -16,7 +16,7 @@ import {
   writeMemoryEntry,
   butterbaseChatJSON,
 } from "@lynx/shared";
-import { getIdentity } from "@lynx/identity-vault";
+import { getIdentity, updateStorageState } from "@lynx/identity-vault";
 import { launchSession, type BrowserSession } from "@lynx/browser-core";
 import type { Action } from "@lynx/shared";
 
@@ -467,9 +467,9 @@ async function tierLLM(
 }
 
 async function loadIdentity(g: RunGoal) {
-  if (!g.identity_id) return { fingerprint: undefined };
+  if (!g.identity_id) return { fingerprint: undefined, storageState: undefined };
   const id = await getIdentity(g.company_id, g.identity_id);
-  if (!id) return { fingerprint: undefined };
+  if (!id) return { fingerprint: undefined, storageState: undefined };
   return {
     fingerprint: id.fingerprint as
       | {
@@ -479,7 +479,18 @@ async function loadIdentity(g: RunGoal) {
           timezone?: string;
         }
       | undefined,
+    storageState: id.storage_state_json ?? undefined,
   };
+}
+
+async function persistStorageState(g: RunGoal, session: BrowserSession) {
+  if (!g.identity_id) return;
+  try {
+    const state = await session.dumpStorageState();
+    await updateStorageState(g.identity_id, state);
+  } catch (e) {
+    console.error("[agent-loop] persistStorageState failed:", e);
+  }
 }
 
 async function reportToMemory(
@@ -517,7 +528,10 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
 
   for (let attempt = 0; attempt <= MAX_RECOVERY; attempt++) {
     const ident = await loadIdentity(g);
-    const session = await launchSession({ fingerprint: ident.fingerprint });
+    const session = await launchSession({
+      fingerprint: ident.fingerprint,
+      identityStorageState: ident.storageState as Record<string, unknown> | undefined,
+    });
 
     try {
       if (g.start_url) {
@@ -529,6 +543,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
       idx = t0.nextIdx;
       if (t0.ok) {
         tierUsed = 0;
+        await persistStorageState(g, session);
         await updateRunStatus(g.run_id, "succeeded", {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
@@ -542,6 +557,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
       totalCost += t1.cost;
       if (t1.ok) {
         tierUsed = 1;
+        await persistStorageState(g, session);
         await updateRunStatus(g.run_id, "succeeded", {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
@@ -555,6 +571,7 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
       totalCost += t2.cost;
       if (t2.ok) {
         tierUsed = 2;
+        await persistStorageState(g, session);
         await updateRunStatus(g.run_id, "succeeded", {
           finished_at: new Date().toISOString(),
           cost_usd: totalCost.toFixed(4),
