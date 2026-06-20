@@ -156,6 +156,54 @@ async function tier0Replay(
   }
 }
 
+async function extractPageText(session: BrowserSession): Promise<string> {
+  return await session.page.evaluate(() => {
+    const t = (document.body?.innerText ?? "").trim();
+    return t.slice(0, 2000);
+  });
+}
+
+async function summarizeFindings(
+  goal: string,
+  url: string,
+  text: string,
+  model: string,
+): Promise<string> {
+  try {
+    const res = await butterbaseChatJSON<{ summary: string }>({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: 'Output JSON only: { "summary": string }. Summarize in ≤2 sentences what was found relevant to the goal on this page.',
+        },
+        {
+          role: "user",
+          content: `Goal: ${goal}\nURL: ${url}\nPage text (truncated):\n${text}`,
+        },
+      ],
+      max_tokens: 200,
+      temperature: 0.1,
+    });
+    return res.summary ?? text.slice(0, 400);
+  } catch {
+    return text.slice(0, 400);
+  }
+}
+
+function sameRegistrableDomain(a: string, b: string): boolean {
+  try {
+    const ha = new URL(a).hostname;
+    const hb = new URL(b).hostname;
+    if (ha === hb) return true;
+    // Treat subdomains of the same eTLD+1 as same site (best-effort, no PSL).
+    const lastTwo = (h: string) => h.split(".").slice(-2).join(".");
+    return lastTwo(ha) === lastTwo(hb);
+  } catch {
+    return false;
+  }
+}
+
 async function tierLLM(
   g: RunGoal,
   session: BrowserSession,
@@ -173,10 +221,26 @@ async function tierLLM(
   let cost = 0;
   const history: string[] = [];
   let actions = 0;
+  let repeatedScrolls = 0;
+  const MAX_REPEATED_SCROLLS = 3;
 
   while (actions < MAX_ACTIONS) {
     const snapshot = await snapshotPage(session);
     const url = session.page.url();
+
+    // Domain clamp: if we've drifted off the original site, stop, extract, finish.
+    if (g.start_url && !sameRegistrableDomain(url, g.start_url)) {
+      const text = await extractPageText(session);
+      const summary = await summarizeFindings(g.goal, url, text, model);
+      cost += perAction;
+      await emit(g.run_id, startIdx++, "extract", {
+        reason: "domain_drift_stop",
+        original_url: g.start_url,
+        current_url: url,
+        summary,
+      });
+      return { ok: true, cost, nextIdx: startIdx };
+    }
     let decision: AgentDecision;
     try {
       decision = await decide(g.goal, snapshot, url, history, model);
@@ -222,6 +286,25 @@ async function tierLLM(
 
     history.push(`${decision.action} ${decision.selector ?? ""} ${decision.value ?? ""}`);
     actions++;
+
+    // Repeated-scroll guard: if the agent scrolls N times in a row with no
+    // other action, treat it as stuck, extract, and finish.
+    if (decision.action === "scroll") {
+      repeatedScrolls += 1;
+      if (repeatedScrolls >= MAX_REPEATED_SCROLLS) {
+        const text = await extractPageText(session);
+        const summary = await summarizeFindings(g.goal, url, text, model);
+        cost += perAction;
+        await emit(g.run_id, startIdx++, "extract", {
+          reason: "repeated_scroll_stop",
+          current_url: url,
+          summary,
+        });
+        return { ok: true, cost, nextIdx: startIdx };
+      }
+    } else {
+      repeatedScrolls = 0;
+    }
   }
 
   await emit(g.run_id, startIdx++, "wait", { error: "MAX_ACTIONS exceeded" });
