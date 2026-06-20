@@ -1,4 +1,4 @@
-import { bbSelect, bbInsert, bbUpdate } from "./butterbase";
+import { bbSelect, bbInsert, bbUpdateById } from "./butterbase";
 import type { Action, RunStatus } from "./index";
 
 export interface Run {
@@ -49,7 +49,7 @@ export async function updateRunStatus(
   if (patch.finished_at !== undefined) body.finished_at = patch.finished_at;
   if (patch.cost_usd !== undefined) body.cost_usd = patch.cost_usd;
   if (patch.video_url !== undefined) body.video_url = patch.video_url;
-  await bbUpdate("lynx_runs", { id: `eq.${id}` }, body);
+  await bbUpdateById("lynx_runs", id, body);
 }
 
 export async function appendAction(run_id: string, a: Action): Promise<void> {
@@ -62,9 +62,7 @@ export async function appendAction(run_id: string, a: Action): Promise<void> {
   });
 }
 
-// Atomic claim is best-effort over REST. Production should run with REDIS_URL set
-// and use BullMQ for hard ordering. Dev fallback claims one queued run by id
-// after an optimistic UPDATE; concurrent workers may race, so dev runs single-worker.
+// Best-effort claim — single-worker only without Redis (race on concurrent).
 export async function nextQueuedRun(): Promise<Run | null> {
   const queued = await bbSelect<Run>(
     "lynx_runs",
@@ -73,10 +71,9 @@ export async function nextQueuedRun(): Promise<Run | null> {
   );
   const candidate = queued[0];
   if (!candidate) return null;
-  const updated = await bbUpdate<Run>(
-    "lynx_runs",
-    { id: `eq.${candidate.id}`, status: "eq.queued" },
-    { status: "running", started_at: new Date().toISOString() },
-  );
-  return updated[0] ?? null;
+  const updated = await bbUpdateById<Run>("lynx_runs", candidate.id, {
+    status: "running",
+    started_at: new Date().toISOString(),
+  });
+  return updated;
 }

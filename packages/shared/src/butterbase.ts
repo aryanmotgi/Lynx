@@ -1,8 +1,12 @@
 // Butterbase REST client for Lynx.
 //
-// All persistence goes through https://api.butterbase.ai/v1/<app_id>.
+// Persistence over https://api.butterbase.ai/v1/<app_id>.
 // Service key (bb_sk_*) authenticates as butterbase_service (bypasses RLS).
 // Tenant isolation enforced in app code via mandatory company_id filter.
+//
+// PATCH and DELETE per Butterbase REST require /{table}/{id} (primary key
+// in path). Use bbUpdateById / bbDeleteById. Multi-row updates: fetch ids
+// first via bbSelect, then patch each.
 
 const DEFAULT_BASE = "https://api.butterbase.ai/v1";
 
@@ -60,6 +64,17 @@ export async function bbSelect<T = Record<string, unknown>>(
   return (await r.json()) as T[];
 }
 
+export async function bbGetById<T = Record<string, unknown>>(
+  table: string,
+  id: string,
+): Promise<T | null> {
+  const url = `${apiBase()}/${table}/${encodeURIComponent(id)}`;
+  const r = await fetch(url, { headers: headers() });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`bbGetById ${table} failed: ${r.status} ${await r.text()}`);
+  return (await r.json()) as T;
+}
+
 export async function bbInsert<T = Record<string, unknown>>(
   table: string,
   data: Record<string, unknown>,
@@ -75,26 +90,27 @@ export async function bbInsert<T = Record<string, unknown>>(
   return (Array.isArray(body) ? body[0] : body) as T;
 }
 
-export async function bbUpdate<T = Record<string, unknown>>(
+export async function bbUpdateById<T = Record<string, unknown>>(
   table: string,
-  filters: Record<string, string>,
+  id: string,
   patch: Record<string, unknown>,
-): Promise<T[]> {
-  const url = `${apiBase()}/${table}${qs(filters)}`;
+): Promise<T | null> {
+  const url = `${apiBase()}/${table}/${encodeURIComponent(id)}`;
   const r = await fetch(url, {
     method: "PATCH",
     headers: headers({ Prefer: "return=representation" }),
     body: JSON.stringify(patch),
   });
-  if (!r.ok) throw new Error(`bbUpdate ${table} failed: ${r.status} ${await r.text()}`);
-  return (await r.json()) as T[];
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`bbUpdateById ${table} failed: ${r.status} ${await r.text()}`);
+  const body = await r.json();
+  return (Array.isArray(body) ? body[0] : body) as T;
 }
 
-export async function bbDelete(
-  table: string,
-  filters: Record<string, string>,
-): Promise<void> {
-  const url = `${apiBase()}/${table}${qs(filters)}`;
+export async function bbDeleteById(table: string, id: string): Promise<void> {
+  const url = `${apiBase()}/${table}/${encodeURIComponent(id)}`;
   const r = await fetch(url, { method: "DELETE", headers: headers() });
-  if (!r.ok) throw new Error(`bbDelete ${table} failed: ${r.status} ${await r.text()}`);
+  if (!r.ok && r.status !== 404) {
+    throw new Error(`bbDeleteById ${table} failed: ${r.status} ${await r.text()}`);
+  }
 }
