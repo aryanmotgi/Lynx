@@ -110,7 +110,7 @@ GET  /v1/spend/:company_id
 
 - Control plane: Vercel
 - Workers: Vercel Sandbox
-- DB: Neon Postgres
+- DB: Docker Postgres (local) → Butterbase (production)
 - Queue: Upstash Redis
 - Artifacts: Cloudflare R2
 - Secrets: Vercel env vars

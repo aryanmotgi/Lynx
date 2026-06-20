@@ -35,7 +35,7 @@ GET  /v1/identities
 
 ## Stack
 
-TypeScript, Patchright (stealth Playwright), Stagehand agent loop, Vercel Sandbox workers, Neon Postgres (RLS), Upstash Redis (per-company queues), Cloudflare R2 (artifacts), Claude Sonnet 4.6 + Haiku 4.5.
+TypeScript, Patchright (stealth Playwright), Stagehand agent loop, Vercel Sandbox workers, Docker Postgres (dev) / Butterbase (prod), Upstash Redis (per-company queues), Cloudflare R2 (artifacts), Claude Sonnet 4.6 + Haiku 4.5.
 
 ## Status
 
