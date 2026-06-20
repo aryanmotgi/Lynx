@@ -1,0 +1,16 @@
+{
+  "name": "@lynx/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'worker dev (TODO: Phase 3 Vercel Sandbox entry)'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lynx/shared": "workspace:*",
+    "@lynx/agent-loop": "workspace:*",
+    "@lynx/browser-core": "workspace:*",
+    "@lynx/identity-vault": "workspace:*"
+  }
+}

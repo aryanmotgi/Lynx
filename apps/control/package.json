@@ -1,0 +1,17 @@
+{
+  "name": "@lynx/control",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'control plane dev (TODO: Next.js scaffold in Phase 3)'",
+    "build": "echo 'control plane build (TODO)'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lynx/shared": "workspace:*",
+    "@lynx/identity-vault": "workspace:*",
+    "@lynx/playbook-store": "workspace:*",
+    "@lynx/budget": "workspace:*"
+  }
+}
