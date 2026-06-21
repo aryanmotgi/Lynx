@@ -156,6 +156,32 @@ async function tier0Replay(
   }
 }
 
+// Emit a final 'extract' action capturing the page state at run end. This is
+// what Atlas (and any other caller) reads via final_summary on the run row —
+// without it, callers know the run succeeded but can't see what the browser
+// actually found.
+async function emitFinalExtract(
+  g: RunGoal,
+  session: BrowserSession,
+  model: string,
+  startIdx: number,
+): Promise<number> {
+  try {
+    const url = session.page.url();
+    const text = await extractPageText(session);
+    const summary = await summarizeFindings(g.goal, url, text, model);
+    await emit(g.run_id, startIdx++, "extract", {
+      reason: "run_complete",
+      current_url: url,
+      summary,
+      page_text: text,
+    });
+  } catch (e) {
+    await emit(g.run_id, startIdx++, "wait", { error: `final_extract failed: ${e}` });
+  }
+  return startIdx;
+}
+
 async function extractPageText(session: BrowserSession): Promise<string> {
   return await session.page.evaluate(() => {
     const t = (document.body?.innerText ?? "").trim();
@@ -369,6 +395,8 @@ async function tierLLM(
           reason: check.reason,
         });
         if (check.done) {
+          startIdx = await emitFinalExtract(g, session, model, startIdx);
+          cost += perAction; // summarizeFindings makes one LLM call
           return { ok: true, cost, nextIdx: startIdx };
         }
       } catch (e) {
@@ -407,6 +435,8 @@ async function tierLLM(
 
     if (decision.finished) {
       await emit(g.run_id, startIdx++, "wait", { finished: true, reasoning: decision.reasoning });
+      startIdx = await emitFinalExtract(g, session, model, startIdx);
+      cost += perAction;
       return { ok: true, cost, nextIdx: startIdx };
     }
 
@@ -543,6 +573,9 @@ export async function runGoal(g: RunGoal): Promise<RunResult> {
       idx = t0.nextIdx;
       if (t0.ok) {
         tierUsed = 0;
+        // Add page-content extract so Atlas sees what the browser found.
+        idx = await emitFinalExtract(g, session, MODEL_TIER1, idx);
+        totalCost += COST_TIER1_PER_ACTION; // summarizeFindings LLM call
         await persistStorageState(g, session);
         await updateRunStatus(g.run_id, "succeeded", {
           finished_at: new Date().toISOString(),
