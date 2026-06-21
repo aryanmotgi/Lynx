@@ -30,6 +30,14 @@ export interface RunRecord {
   started_at: string | null;
   finished_at: string | null;
   video_url: string | null;
+  /** LLM-generated summary of the page Lynx ended on. null if no extract action. */
+  final_summary?: string | null;
+  /** Where final_summary came from: e.g. "extract:run_complete", "wait:done_check". */
+  final_source?: string | null;
+  current_url?: string | null;
+  /** Raw page innerText (truncated to ~2000 chars) when available. */
+  page_text?: string | null;
+  action_count?: number;
 }
 
 export class LynxClient {
